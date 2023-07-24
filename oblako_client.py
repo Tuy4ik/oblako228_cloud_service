@@ -1,172 +1,99 @@
 import socket
 import os
+import random
 
-logging = "on"
-
-
-def sendfile(filename):
-    file_size_u = os.path.getsize(filename)
-    s.send(bytes(str(file_size_u // 50).rjust(24, '0'), 'utf-8'))
-    s.send(bytes(str(file_size_u % 50).rjust(24, '0'), 'utf-8'))
-    file_opened = open(filename, "rb")
-    while file_size_u > 0:
-        if file_size_u > 50:
-            data = file_opened.read(50)
-            file_size_u -= 50
-        else:
-            data = file_opened.read(file_size_u)
-            file_size_u = 0
-        s.send(data)
-    file_opened.close()
+script_directory = os.getcwd()
 
 
-def receivefile(name_of_file):
-    fileCreated = open(name_of_file, "wb")
-    fileSizeD = int(s.recv(24).decode('utf-8'))
-    fileSizeDR = int(s.recv(24).decode('utf-8'))
-    for i in range(fileSizeD):
-        fileCreated.write(s.recv(50))
-    if fileSizeDR > 0:
-        fileCreated.write(s.recv(fileSizeDR))
-    fileCreated.close()
+class Client:
+    def __init__(self):
+        self.username = None
+        self.authorisation_status = None
+        self.connection = None
 
+    def connect(self, host_address='127.0.0.1', host_port=1415):
+        self.connection = socket.socket()
+        self.connection.connect((host_address, host_port))
+        print("connected")
 
-def view():
-    s.send(b"view")
-    amount = int(s.recv(16).decode("utf-8"))
-    for a in range(amount):
-        print(s.recv(84).decode("utf-8").strip())
-
-
-def currentdir():
-    s.send(b'cdir')
-    print(s.recv(256).decode('utf-8').strip())    
-
-
-accessStatus = "denied"
-action = ""
-amount = 0
-fileSizeU = ""
-filesizeD = ""
-prevdir = ""
-curdir = ""
-mode = "manual"
-
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect(('127.0.0.1', 1415))
-
-while accessStatus == "denied":
-    print("напишите \"sign in\" для входа или \"sign up\" для регистрации")
-    while True:
-        optionChosen = input()
-        if optionChosen == "sign in":
-            s.send(b'0')
-            break
-        if optionChosen == "sign up":
-            s.send(b'1')
-            break
-    username = input("username ").ljust(16, " ")
-    password = input("password ").ljust(16, " ")
-    s.send(bytes(username, 'utf-8'))
-    s.send(bytes(password, 'utf-8'))
-    if s.recv(8).decode('utf-8') == 'username':
-        print("пользователь с таким именем уже существует")
-    if s.recv(8).decode('utf-8') == 'password':
-        print("пользователь с таким паролем уже существует")
-    accessStatus = s.recv(6).decode("utf-8")
-    if accessStatus == "denied":
-        print("вы неверно ввели данные или произошла ошибка")
-print("вы успешно вошли, \nhelp - список команд")
-print(os.getcwd())
-curdir = username
-
-# действия клиента
-while True:
-    action = input()
-    if action == "help":
-        print("view - показать содержимое текущей папки\nlogging on/off - включить или выключить логирование\ndelete + имя папки - удалить выбранную папку со всем содержимым\nexit - выйти\nupload + название - загрузить файл\ndownload + название - скачать файл\ncreate + имя папки - создать папку с желаемым названием\ngoto + название - перейти в папку\nback - назад\ncurdir -текущая директория\nmode\n\tбез аргумента - узнать режим на данный момент\n\tmanual - режим по умолчанию\n\tauto - вызывать curdir и view после каждого действия")
-    if action == "view":
-        view()
-    if action[:7] == "create ":
-        s.send(b"crte")
-        s.send(bytes(action[7:].ljust(84, " "), 'utf-8'))
-    if action == "exit":
-        s.send(b'exit')
-        os._exit(os.X_OK)
-    if action[:5] == "goto ":
-        s.send(b"goto")
-        s.send(bytes(action[5:].ljust(84, " "), 'utf-8'))
-        prevdir = curdir
-        curdir += action[5:]
-    if action[:7] == "upload ":
-        curdir = os.getcwd()
-        numFiles = 0
-        s.send(b"upld")
-        fileName = action[7:].split("\\")[-1]
-        fileStatus = os.path.isfile(fileName)
-        if fileStatus:
-            s.send(b'file')
-            s.send(bytes(fileName.ljust(48, ' '), 'utf-8'))
-            sendfile(fileName)
-        else:
-            s.send(b'fold')
-            for root, dirnames, filenames in os.walk(action[7:]):
-                for i in filenames:
-                    numFiles += 1
-            print(numFiles)
-            s.send(bytes(str(numFiles).rjust(24, '0'), 'utf-8'))
-            for root, dirnames, filenames in os.walk(action[7:]):
-                for i in filenames:
-                    s.send(bytes("\\".join(root.split("\\")[root.split("\\").index(fileName):]).ljust(432, " "), 'utf-8'))
-                    s.send(bytes(i.ljust(84), 'utf-8'))
-                    os.chdir(root)
-                    sendfile(i)
-                    os.chdir(curdir)
-        print("uploading complete")
-    if action[:9] == "download ":
-        s.send(b"dnld")
-        s.send(bytes(action[9:].ljust(48, " "), 'utf-8'))
-        if s.recv(6).decode('utf-8') == "doesnt":
-            print("в выбранной директории нет файла с таким названием")
-        else:
-            print("введите путь для загрузки, 0 для выбора текущей директории")
-            path = input()
-            if path == "0":
-                path = os.getcwd()
-            os.chdir(path)
-            if os.path.isfile(action[9:]):
-                receivefile(action[9:])
+    def log(self):
+        while self.authorisation_status != "user authorised":
+            mode = input("enter \"enter\" to sign in or \"register\" to sign up: ")
+            if mode == "enter" or mode == "register":
+                self.connection.send(mode.encode('utf-8'))
             else:
-                numberOfFilesDownloading = int(s.recv(24).decode('utf-8'))
-                for i in range(numberOfFilesDownloading):
-                    for j in s.recv(432).decode('utf-8').strip().split("\\"):
-                        if j not in os.listdir():
-                            os.mkdir(j)
-                        os.chdir(j)
-                    receivefile(s.recv(84).decode('utf-8').strip())
-                    os.chdir(path)
-                    if logging == "on":
-                        print(str(i+1)+"/"+str(numberOfFilesDownloading))
-        print("download complete")
-    if action == "back":
-        s.send(b"back")
-    if action == "curdir":
-        currentdir()
-    if action == "mode auto":
-        mode = "auto"
-    if action == "mode manual":
-        mode = "manual"
-    if action == "mode":
-        print(mode)
-    if action == "logging on":
-        s.send(b'lgon')
-    if action == "logging off":
-        s.send(b'loff')
-    if action[:7] == "delete ":
-        s.send(b'delt')
-        s.send(action[7:].ljust(256, ' ').encode('utf-8'))
-        if s.recv(6).decode('utf-8') == 'doesnt':
-            print("в текущей директории нет папки с указанным именем")
-    if mode == "auto":
-        currentdir()
-        view()
+                continue
+            self.connection.send(input("username: ").encode('utf-8'))
+            self.connection.send(input("password: ").encode('utf-8'))
+            self.authorisation_status = self.connection.recv(2048).decode('utf-8')
+            print(self.authorisation_status)
+
+    def send_file(self, file_to_send):
+        file_size = os.path.getsize(file_to_send) // 2048
+        self.connection.send(str(file_size).rjust(2048, " ").encode('utf-8'))
+        with open(file_to_send, "rb") as file_opened:
+            for i in range(file_size):
+                self.connection.send((int.from_bytes(file_opened.read(2048), 'big') ^ int.from_bytes(key, 'big')).to_bytes(2048, 'big'))
+            print(str(os.path.getsize(file_to_send) - file_size * 2048))
+            self.connection.send(str(os.path.getsize(file_to_send) - file_size * 2048).rjust(2048, "0").encode('utf-8'))
+            self.connection.send(file_opened.read(os.path.getsize(file_to_send) - file_size * 2048))
+
+    def receive_file(self, download_directory):
+        os.chdir(script_directory)
+        for i in range(int(self.connection.recv(2048).decode('utf-8').strip())):
+            file_name = self.connection.recv(2048).decode('utf-8').strip().split("\\")
+            if len(file_name) > 1:
+                for j in file_name[:-1]:
+                    if j not in os.listdir():
+                        os.mkdir(j)
+                    os.chdir(j)
+            with open(file_name[-1], "wb") as file_created:
+                file_being_received_size = int(self.connection.recv(2048).decode('utf-8'))
+                for q in range(file_being_received_size):
+                    file_created.write((int.from_bytes(self.connection.recv(2048), 'big') ^ int.from_bytes(key, 'big')).to_bytes(2048, 'big'))
+                file_created.write(self.connection.recv(int(self.connection.recv(2048).decode('utf-8'))))
+            os.chdir(download_directory)
+
+    def request(self):
+        print(self.connection.recv(2048).decode('utf-8').strip())
+        for i in range(int(self.connection.recv(2048).decode('utf-8').strip())):
+            print(self.connection.recv(2048).decode('utf-8').strip())
+        action = input()
+        self.connection.send(action.encode('utf-8'))
+        match(action.split(" ", 1)):
+            case "download", name_to_download:
+                self.receive_file(os.getcwd())
+            case "upload", name_to_upload:
+                if name_to_upload in os.listdir():
+                    if os.path.isfile(name_to_upload):
+                        self.connection.send(b'1')
+                        self.connection.send(name_to_upload.ljust(2048, " ").encode('utf-8'))
+                        self.send_file(name_to_upload)
+                    elif os.path.isdir(name_to_upload):
+                        number_of_files_to_send = 0
+                        for root, dirs, filenames in os.walk(os.getcwd() + "\\" + name_to_upload):
+                            for k in filenames:
+                                number_of_files_to_send += 1
+                        self.connection.send(str(number_of_files_to_send).encode('utf-8'))
+                        for root, dirs, filenames in os.walk(os.getcwd() + "\\" + name_to_upload):
+                            for i in filenames:
+                                os.chdir(root)
+                                a = ("\\".join(root.split("\\")[root.split("\\").index(name_to_upload):]) + "\\" + i).ljust(
+                                    2048, " ").encode('utf-8')
+                                self.connection.send(a)
+                                self.send_file(i)
+            case ["exit"]:
+                pass
+
+
+if "client_password.txt" not in os.listdir():
+    with open("client_password.txt", "ab") as creating_password_file:
+        for i in range(64):
+            creating_password_file.write(random.randint(0, 2147483647).to_bytes(32, 'big'))
+with open("client_password.txt", "rb") as key_file:
+    key = key_file.read(2048)
+client = Client()
+client.connect()
+client.log()
+while True:
+    client.request()
