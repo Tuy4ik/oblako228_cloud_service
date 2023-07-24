@@ -1,221 +1,155 @@
-import os
 import socket
-
-homedir = os.getcwd()
-log = "on"
+import os
 
 
-def sendfile(filename, conn):
-    filesize = os.path.getsize(filename)
-    conn.send(bytes(str(filesize // 50).rjust(24, '0'), 'utf-8'))
-    conn.send(bytes(str(filesize % 50).rjust(24, '0'), 'utf-8'))
-    fileopened = open(filename, "rb")
-    while filesize > 0:
-        if filesize > 50:
-            data = fileopened.read(50)
-            filesize -= 50
-        else:
-            data = fileopened.read(filesize)
-            filesize = 0
-        conn.send(data)
-    fileopened.close()
+class User:
+    def __init__(self):
+        self.connection = None
+        self.address = None
+        self.username = None
+
+    def connect(self, host_address='127.0.0.1', host_port=1415):
+        host = socket.socket()
+        host.bind((host_address, host_port))
+        host.listen(1)
+        conn, addr = host.accept()
+        print("connection data:", conn, addr)
+        self.connection = conn
+        self.address = addr
+        return conn, addr
+
+    def log(self):
+        while self.username is None:
+            mode = self.connection.recv(2048).decode('utf-8')
+            username = self.connection.recv(2048).decode('utf-8')
+            password = self.connection.recv(2048).decode('utf-8')
+            message = ""
+            if mode == "enter":
+                with open("user_data.txt", "r") as user_data:
+                    lines_entering = user_data.readlines()
+                    if "username: "+username+"\n" in lines_entering and "password: "+password+"\n" in lines_entering:
+                        os.chdir("user_directories\\"+username)
+                        message = "user authorised"
+                    if "password: "+password+"\n" not in lines_entering:
+                        message += "password incorrect "
+                    if "username: "+username+"\n" not in lines_entering:
+                        message += "username incorrect"
+            elif mode == "register":
+                with open("user_data.txt", "r") as read_user_data:
+                    lines_registering = read_user_data.readlines()
+                    if "password: "+password+"\n" not in lines_registering and "username: "+username+"\n" not in lines_registering:
+                        os.mkdir("user_directories\\"+username)
+                        with open("user_data.txt", "a") as write_user_data:
+                            write_user_data.write("username: " + username + "\n" + "password: " + password + "\n")
+                        os.chdir("user_directories\\"+username)
+                        message = "user authorised"
+                    if "password: "+password+"\n" in lines_registering:
+                        message += "password already exists "
+                    if "username: "+username+"\n" in lines_registering:
+                        message += "username already exists"
+            self.connection.send(message.encode('utf-8'))
+            print(message)
+            if message == "user authorised":
+                self.username = username
 
 
-def receivefile(filename, conn):
-    fileSizeU = int(conn.recv(24).decode('utf-8'))
-    fileSizeUR = int(conn.recv(24).decode('utf-8'))
-    file_created = open(filename, "wb")
-    for i in range(fileSizeU):
-        file_created.write(conn.recv(50))
-    if fileSizeUR > 0:
-        file_created.write(conn.recv(fileSizeUR))
-    file_created.close()
-
-
-def connect():
-    host = socket.socket()
-    host.bind(('127.0.0.1', 1415))
-    host.listen(1)
-    conn, addr = host.accept()
-    print("connection data:",conn, addr)
-    return conn, addr
-
-
-def hosting(logging):
-    conn, addr = connect()
-
-    access_obtained_user = ""
-
-    while access_obtained_user == "":
-        unique_user = True
-        sign_or_enter = int(conn.recv(1))
-        if sign_or_enter == 1:
-            print("the user is signing up")
-            username = conn.recv(16).decode("utf-8").strip()
-            password = conn.recv(16).decode("utf-8").strip()
-            with open(homedir + "\\user_data.txt", "r") as check:
-                lines = check.readlines()
-                if "user: " + username + "\n" in lines:
-                    conn.send(b'username')
-                    print("username already taken")  
-                    unique_user = False
-                else:
-                    conn.send(b'00000000')
-                if "password: " + password + "\n" in lines:
-                    conn.send(b'password')
-                    print("password already taken") 
-                    unique_user = False
-                else:
-                    conn.send(b'00000000')
-            print("the user is unique: "+unique_user)
-            if unique_user:
-                write = open(homedir + "\\user_data.txt", "a")
-                print("user: " + username + "\\n")
-                print("password: " + password + "\\n")
-                write.write("user: " + username + "\n" + "password: " + password + "\n")
-                write.close()
-                read = open(homedir + "\\user_data.txt", "r")
-                lines = read.readlines()
-                print(lines)
-                os.makedirs("user_directories\\" + username)
-                access_obtained_user = username
-                conn.send(b'signed')
-            else:
-                conn.send(b'denied')
-        else:
-            print("the user is signing in")
-            read = open(homedir + "\\user_data.txt", "r")
-            username = conn.recv(16).decode("utf-8").strip()
-            password = conn.recv(16).decode("utf-8").strip()
-            conn.send(b'00000000')
-            conn.send(b'00000000')
-            lines = read.readlines()
-            print(lines)
-            print("user: " + username + "\\n")  #
-            print("password: " + password + "\\n")  #
-            if ("user: " + username + "\n") in lines:  #
-                print("the username received exists")  #
-            if ("password: " + password + "\n") in lines:  #
-                print("the password received exists")  #
-            if (("user: " + username + "\n") in lines) and (("password: " + password + "\n") in lines):
-                access_obtained_user = username
-                conn.send(b'signed')
-            else:
-                conn.send(b'denied')
-            read.close()
-    access_obtained_user = access_obtained_user.strip()
-    print("the username of a user that obtained acces:", access_obtained_user, "0")
-    os.chdir("user_directories//" + access_obtained_user)
-    print(os.getcwd())
-
-    while True:
-        action = conn.recv(4).decode("utf-8")
-        if action == "view":
-            conn.send(bytes(str(len(os.listdir())).rjust(16, "0"), 'utf-8'))
-            for name in os.listdir():
-                currentName = name.ljust(84, " ")
-                conn.send(bytes(currentName, 'utf-8'))
-        if action == "crte":
-            nameOfFolderCreated = conn.recv(84).decode('utf-8').strip()
-            os.mkdir(nameOfFolderCreated)
-        if action == "goto":
-            nameOfFolderGoTo = conn.recv(84).decode('utf-8').strip()
-            os.chdir(nameOfFolderGoTo)
-        if action == "upld":
-            curdirU = os.getcwd()
-            status = conn.recv(4).decode('utf-8')
-            if status == 'file':
-                print('user is uploading file')
-                receivefile(conn.recv(48).decode('utf-8').strip(), conn)
-            else:
-                print('user is uploading folder')
-                numberF = int(conn.recv(24).decode('utf-8'))
-                print(numberF)
-                for i in range(numberF):
-                    for j in conn.recv(432).decode('utf-8').strip().split("\\"):
-                        if j not in os.listdir():
-                            os.mkdir(j)
-                        os.chdir(j)
-                    receivefile(conn.recv(84).decode('utf-8').strip(), conn)
-                    os.chdir(curdirU)
-        if action == "dnld":
-            curdirD = os.getcwd()
-            numFiles = 0
-            fileName = conn.recv(48).decode('utf-8').strip()
-            if fileName in os.listdir():
-                conn.send(b"exists")
-            else:
-                conn.send(b"doesnt")
-            if not os.path.isdir(fileName):
-                sendfile(fileName, conn)
-            else:
-                for root, dirs, filenames in os.walk(os.getcwd() + "\\" + fileName):
+    def delete(self, names_to_delete):
+        if names_to_delete in os.listdir():
+            if os.path.isfile(names_to_delete):
+                os.remove(names_to_delete)
+            elif os.path.isdir(names_to_delete):
+                for root, dirnames, filenames in os.walk(os.getcwd() + "\\" + names_to_delete):
                     for i in filenames:
-                        if logging == "on":
-                            print("\\".join(root.split("\\")[root.split("\\").index(fileName):]) + "\\" + i)
-                            print(numFiles)
-                        numFiles += 1
-                conn.send(bytes(str(numFiles).rjust(24, '0'), 'utf-8'))
-                for root, dirs, filenames in os.walk(os.getcwd() + "\\" + fileName):
-                    for i in filenames:
-                        if logging == "on":
-                            print("\\".join(root.split("\\")[root.split("\\").index(fileName):]) + "\\" + i)
-                        conn.send(bytes("\\".join(root.split("\\")[root.split("\\").index(fileName):]).ljust(432, " "),
-                                        'utf-8'))
-                        conn.send(bytes(i.ljust(84), 'utf-8'))
-                        os.chdir(root)
-                        sendfile(i, conn)
-                        os.chdir(curdirD)
-        if action == "back":
-            if os.getcwd().split("\\")[-1] != access_obtained_user:
+                        print("\\".join(root.split("\\")[root.split("\\").index(names_to_delete):]) + "\\" + i)
+                        os.remove(root + "\\" + i)
+                while len(os.listdir(names_to_delete)) > 0:
+                    for root, dirnames, filenames in os.walk(os.getcwd() + "\\" + names_to_delete):
+                        print(root)
+                        try:
+                            os.rmdir(root)
+                        except:
+                            pass
+            return "complete"
+        else:
+            return "no such file or directory"
+
+    def receive_file(self, upload_directory):
+        for i in range(int(self.connection.recv(2048).decode('utf-8').strip())):
+            file_name = self.connection.recv(2048).decode('utf-8').strip().split("\\")
+            if len(file_name) > 1:
+                for j in file_name[:-1]:
+                    if j not in os.listdir():
+                        os.mkdir(j)
+                    os.chdir(j)
+            with open(file_name[-1], "wb") as file_created:
+                file_being_received_size = int(self.connection.recv(2048).decode('utf-8'))
+                print(file_being_received_size)
+                for k in range(file_being_received_size):
+                    file_created.write(self.connection.recv(2048))
+                file_created.write(self.connection.recv(int(self.connection.recv(2048).decode('utf-8'))))
+            os.chdir(upload_directory)
+
+    def send_file(self, file_to_send):
+        file_size = os.path.getsize(file_to_send)//2048
+        self.connection.send(str(file_size).rjust(2048, " ").encode('utf-8'))
+        with open(file_to_send, "rb") as file_opened:
+            for i in range(file_size):
+                self.connection.send(file_opened.read(2048))
+            print(str(os.path.getsize(file_to_send)-file_size*2048))
+            self.connection.send(str(os.path.getsize(file_to_send)-file_size*2048).rjust(2048, "0").encode('utf-8'))
+            self.connection.send(file_opened.read(os.path.getsize(file_to_send)-file_size*2048))
+
+    def list(self):
+        self.connection.send("\\".join(os.getcwd().split("\\")[os.getcwd().split("\\").index(self.username):]).ljust(2048, " ").encode('utf-8'))
+        self.connection.send(str(len(os.listdir())).ljust(2048, " ").encode('utf-8'))
+        for directory in os.listdir():
+            self.connection.send(directory.ljust(2048, " ").encode('utf-8'))
+            print("sent", directory)
+
+    def satisfy_client_request(self):
+        self.list()
+        request = self.connection.recv(2048).decode('utf-8').split(" ", 1)
+        print(request)
+        match request:
+            case "create", name_of_folder_to_create:
+                os.mkdir(name_of_folder_to_create)
+            case "goto", name_of_folder_to_goto:
+                os.chdir(name_of_folder_to_goto)
+            case "delete", name_to_delete:
+                self.connection.send(self.delete(name_to_delete).encode('utf-8'))
+            case "upload", name_to_upload:
+                print("uploading")
+                self.receive_file(os.getcwd())
+            case "download", name_to_download:
+                if name_to_download in os.listdir():
+                    if os.path.isfile(name_to_download):
+                        self.connection.send(b'1')
+                        self.connection.send(name_to_download.ljust(2048, " ").encode('utf-8'))
+                        self.send_file(name_to_download)
+                    elif os.path.isdir(name_to_download):
+                        number_of_files_to_send = 0
+                        for root, dirs, filenames in os.walk(os.getcwd()+"\\"+name_to_download):
+                            for i in filenames:
+                                number_of_files_to_send += 1
+                                print(i)
+                        print(number_of_files_to_send, "files to send")
+                        self.connection.send(str(number_of_files_to_send).encode('utf-8'))
+                        for root, dirs, filenames in os.walk(os.getcwd()+"\\"+name_to_download):
+                            for i in filenames:
+                                os.chdir(root)
+                                a = ("\\".join(root.split("\\")[root.split("\\").index(name_to_download):])+"\\"+i).ljust(2048, " ").encode('utf-8')
+                                self.connection.send(a)
+                                print(a)
+                                self.send_file(i)
+            case ["exit"]:
+                pass
+            case ['back']:
                 os.chdir("\\".join(os.getcwd().split("\\")[:-1]))
-        if action == "cdir":
-            conn.send(bytes(
-                "\\".join(os.getcwd().split("\\")[os.getcwd().split("\\").index(access_obtained_user):]).ljust(256, ' '),
-                'utf-8'))
-        if action == "delt":
-            toDeleteName = conn.recv(256).decode('utf-8').strip()
-            if toDeleteName in os.listdir():
-                conn.send(b'exists')
-                if os.path.isfile(toDeleteName):
-                    os.remove(toDeleteName)
-                else:
-                    for root, dirnames, filenames in os.walk(os.getcwd() + "\\" + toDeleteName):
-                        for i in filenames:
-                            if logging == "on":
-                                print("\\".join(root.split("\\")[root.split("\\").index(toDeleteName):]) + "\\" + i)
-                            os.remove(root + "\\" + i)
-                    print("files deleted")
-                    while len(os.listdir(toDeleteName)) > 0:
-                        for root, dirnames, filenames in os.walk(os.getcwd() + "\\" + toDeleteName):
-                            if logging == "on":
-                                print(root)
-                            try:
-                                os.rmdir(root)
-                            except:
-                                pass
-                    os.rmdir(toDeleteName)
-            else:
-                conn.send(b'doesnt')
-        if action == 'exit':
-            conn.close()
-            print("connection aborted")
-            break
-        if action == 'lgon':
-            logging = "on"
-            print("logging on")
-        if action == 'loff':
-            logging = "off"
-            print("logging off")
+                print("going back to "+"\\".join(os.getcwd().split("\\")[:-1]))
 
 
-if "user_directories" not in os.listdir():
-    os.makedirs("user_directories")
-if "user_data.txt" not in os.listdir():
-    a = open("user_data.txt", "x")
-    a.close()
-
-
+user = User()
+user.connect()
+user.log()
 while True:
-    hosting(log)
-    os.chdir(homedir)
+    user.satisfy_client_request()
